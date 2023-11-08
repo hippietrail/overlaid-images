@@ -12,11 +12,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.ZoomIn
@@ -36,23 +38,48 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import com.example.overlaidimages.ui.theme.OverlaidImagesTheme
 import kotlin.math.sin
+
+enum class TransitionMode {
+    FADE,
+    SWIPE,
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            var transitionMode by rememberSaveable {
+                mutableStateOf(TransitionMode.FADE)
+            }
+
             OverlaidImagesTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    transitionMode = if (transitionMode == TransitionMode.FADE)
+                                        TransitionMode.SWIPE
+                                    else
+                                        TransitionMode.FADE
+                                }
+                            )
+                        }
+                    ,
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    OverlaidImages()
+                    OverlaidImages(transitionMode)
                 }
             }
         }
@@ -60,7 +87,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun OverlaidImages() {
+fun OverlaidImages(mode: TransitionMode = TransitionMode.FADE) {
     val ctx = LocalContext.current
     val cr = ctx.contentResolver
 
@@ -74,7 +101,8 @@ fun OverlaidImages() {
     var scale by rememberSaveable { mutableStateOf(1f) }
 
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia()
+        //contract = ActivityResultContracts.GetMultipleContents()
+        contract = ActivityResultContracts.PickMultipleVisualMedia(2)
     ) { uriList ->
         val uriCount = uriList.count()
         var moveTopToBottom = false
@@ -118,6 +146,7 @@ fun OverlaidImages() {
     Column {
         Button(onClick = {
             launcher.launch(
+                //"image/*"
                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             )
         }) {
@@ -133,14 +162,35 @@ fun OverlaidImages() {
                         .fillMaxSize()
                 )
             }
-            topBm.value?.let {
+            topBm.value?.let { bm ->
+                val factor = sin(th) / 2f + 0.5f
+
+                val transitionModifier =
+                    when (mode) {
+                        TransitionMode.FADE ->
+                            Modifier.alpha(factor)
+
+                        TransitionMode.SWIPE ->
+                            Modifier.clip(GenericShape { size, _ ->
+                                addRect(
+                                    rect = Rect(
+                                        topLeft = Offset.Zero,
+                                        bottomRight = Offset(
+                                            size.width * factor,
+                                            size.height
+                                        )
+                                    )
+                                )
+                            })
+                    }
+
                 Image(
-                    bitmap = it.asImageBitmap(),
+                    bitmap = bm.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .alpha(sin(th) / 2f + 0.5f)
                         .scale(scale)
+                        .then(transitionModifier)
                 )
             }
         }
@@ -161,7 +211,7 @@ fun OverlaidImages() {
             Slider(
                 value = scale,
                 onValueChange = { scale = it },
-                valueRange = 0.9f..1.1f,
+                valueRange = 0.8f..1.4f,
                 modifier = Modifier
                     .fillMaxWidth(),
                 colors = SliderDefaults.colors(
